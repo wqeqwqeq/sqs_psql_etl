@@ -1,84 +1,128 @@
-# Fetch Rewards #
-## Data Engineering Take Home: ETL off a SQS Qeueue ##
+## Install dependency
+Assume you have already installed docker and make on your system...
 
-You may use any programming language to complete this exercise. We strongly encourage you to write a README to explain how to run your application and summarize your thought process.
+```make pip_install```
 
-## What do I need to do?
-This challenge will focus on your ability to write a small application that can read from an AWS SQS Qeueue, transform that data, then write to a Postgres database. This project includes steps for using docker to run all the components locally, **you do not need an AWS account to do this take home.**
+## Start docker container
 
-Your objective is to read JSON data containing user login behavior from an AWS SQS Queue that is made available via [localstack](https://github.com/localstack/localstack). Fetch wants to hide personal identifiable information (PII). The fields `device_id` and `ip` should be masked, but in a way where it is easy for data analysts to identify duplicate values in those fields.
+```make start ```
 
-Once you have flattened the JSON data object and masked those two fields, write each record to a Postgres database that is made available via [Postgres's docker image](https://hub.docker.com/_/postgres). Note the target table's DDL is:
+## Create login_queue
 
-```sql
--- Creation of user_logins table
+When I run this on my PC, after run docker compose, the login_queue is not automatically created, looks like the 01_call_python_scripts.sh
+does not run as expected, so if you can run 
 
-CREATE TABLE IF NOT EXISTS user_logins(
-    user_id             varchar(128),
-    device_type         varchar(32),
-    masked_ip           varchar(256),
-    masked_device_id    varchar(256),
-    locale              varchar(32),
-    app_version         integer,
-    create_date         date
-);
+```
+awslocal sqs receive-message --queue-url http://localhost:4566/000000000000/login-queue
 ```
 
-You will have to make a number of decisions as you develop this solution:
+, which means your queue is successfully created by docker compose
 
-*    How will you read messages from the queue?
-*    What type of data structures should be used?
-*    How will you mask the PII data so that duplicate values can be identified?
-*    What will be your strategy for connecting and writing to Postgres?
-*    Where and how will your application run?
+However if not, run
 
-**The recommended time to spend on this take home is 2-3 hours.** Make use of code stubs, doc strings, and a next steps section in your README to elaborate on ways that you would continue fleshing out this project if you had the time.
-
-For this assignment an ounce of communication and organization is worth a pound of execution. Please answer the following questions:
-
-* How would you deploy this application in production?
-* What other components would you want to add to make this production ready?
-* How can this application scale with a growing data set.
-* How can PII be recovered later on?
-
-## Project Setup
-1. Fork this repository to a personal Github, GitLab, Bitbucket, etc... account. We will not accept PRs to this project.
-2. You will need the following installed on your local machine
-    * make
-        * Ubuntu -- `apt-get -y install make`
-        * Windows -- `choco install make`
-        * Mac -- `brew install make`
-    * python3 -- [python install guide](https://www.python.org/downloads/)
-    * pip3 -- `python -m ensurepip --upgrade` or run `make pip-install` in the project root
-    * awslocal -- `pip install awscli-local`  or run `make pip install` in the project root
-    * docker -- [docker install guide](https://docs.docker.com/get-docker/)
-    * docker-compose -- [docker-compose install guide]()
-3. Run `make start` to execute the docker-compose file in the the project (see scripts/ and data/ directories to see what's going on, if you're curious)
-    * An AWS SQS Queue is created
-    * A script is run to write 100 JSON records to the queue
-    * A Postgres database will be stood up
-    * A user_logins table will be created in the public schema
-4. Test local access
-    * Read a message from the queue using awslocal, `awslocal sqs receive-message --queue-url http://localhost:4566/000000000000/login-queue`
-    * Connect to the Postgres database, verify the table is created
-    * username = `postgres`
-    * database = `postgres`
-    * password = `postgres`
-
-```bash
-# password: postgres
-
-psql -d postgres -U postgres  -p 5432 -h localhost -W
-Password: 
-
-postgres=# select * from user_logins;
- user_id | device_type | hashed_ip | hashed_device_id | locale | app_version | create_date 
----------+-------------+-----------+------------------+--------+-------------+-------------
-(0 rows)
 ```
-5. Run `make stop` to terminate the docker containers and optionally run `make clean` to clean up docker resources.
+$ docker ps                                                                                                                                                                                                 
+CONTAINER ID   IMAGE                          COMMAND                  CREATED         STATUS         PORTS                                                                                            NAMES
+a613d56a99e5   postgres:10                    "docker-entrypoint.s…"   9 minutes ago   Up 9 minutes   0.0.0.0:5432->5432/tcp                                                                           sqs_psql_etl_postgres_1                                                                                                                                                                                          
+809eb9c75975   localstack/localstack:0.14.3   "docker-entrypoint.sh"   9 minutes ago   Up 9 minutes   127.0.0.1:443->443/tcp, 127.0.0.1:4510-4559->4510-4559/tcp, 127.0.0.1:4566->4566/tcp, 5678/tcp   sqs_psql_etl_localstack_1  
+```
 
-## All done, now what?
-Upload your codebase to a public Git repo (GitHub, Bitbucket, etc.) and please submit your Link where it says to - under the exercise via Green House our ATS. Please double-check this is publicly accessible.
+Then find the hash code for container created by localstack image, mine is `809eb9c75975`
 
-Please assume the evaluator does not have prior experience executing programs in your chosen language and needs documentation understand how to run your code
+Then run following
+
+```
+$ docker exec -it 809e bash                                                                                                                                                                                 
+root@809eb9c75975:/opt/code/localstack# python /tmp/scripts/create_and_write_to_queue.py                                                                                                                    
+queue_url: [http://localhost:4566/000000000000/login-queue]                                                                                                                                                 
+root@809eb9c75975:/opt/code/localstack# exit                                                                                                                                                                
+exit    
+```
+
+## create_key
+
+This steps is to create public and private key generated by RSA, will be use to encrypt and decrypt ip and device id
+
+```
+make create_key
+```
+
+## Run code 
+
+Basically run `make etl` will kick off the etl, `make health_check` will do a count for number of rows in psql
+ 
+```
+282710@root: ~/docker_project/sqs_psql_etl  (master)                                                                                                                                                        
+$ make etl                                                                                                                                                                                                  
+python -m etl                                                                                                                                                                                               
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Processed 10 messages                                                                                                                                                                                       
+Finished parsing                                                                                                                                                                                            
+current batch size is 100                                                                                                                                                                                   
+Error message {'foo': 'oops_wrong_msg_type', 'bar': '123'}                                                                                                                                                  
+                                                                                                                                                                                                            
+282710@root: ~/docker_project/sqs_psql_etl  (master)                                                                                                                                                        
+$ make health_check                                                                                                                                                                                         
+python -m health                                                                                                                                                                                            
+Number of rows in user_logins now is 99                                                                                                                                                                     
+                                                                                                                                                                                                            
+```
+
+For `app_version`, since the target schema is *int*, however the value from queue's dtype is *varchar*, so I replace the **.** and apply *int()* to convert `app_version` to integer
+
+I don't think *int* is the correct dtype in the target schema 
+
+## Decrypt example
+
+Make sure run this python code in the root directory of the project
+
+```python
+from encoding import load_key, encrypt, decrypt, public_file, private_file
+
+public, private = load_key(public_file, private_file)
+msg = "hello world"
+encrypt_msg = encrypt(msg, public)
+decrypt_msg = decrypt(encrypt_msg, private)
+
+
+print("Original msg is:", msg)
+# original msg is: hello world                                                                                                                                                                                
+print("Encoded msg is:", encrypt_msg)
+# encoded msg is: O5PZNgVPFea1D9qZjogHK5AvsOJdutHitnLPA9OiANk=                                                                                                                                                
+print("Decoded msg is:", decrypt_msg)
+# decoded msg is: hello world   
+
+```
+
+
+## Answers to Questions 
+
+### How would you deploy this application in production?
+We can deploy this code to AWS Lambda, and use `create-event-source-mapping` (AWS Kinesis can do, so I assume SQS can do the same thing) 
+to connect with the SQS queue
+
+Since the code is processing batch (you can define in chunk_size in etl.py) and will not process duplicated message (once the message is received, it will be deleted from the queue),
+we can have many lambda functions listen to the same Queue, and insert to psql at the same time
+
+### What other components would you want to add to make this production ready?
+
+I am not pretty sure if multiple insert query to the same psql instance is doable, if not, we may need to insert different batch from the lambda in order
+
+Also we can create lambda functions for health check as well
+
+
+### How can this application scale with a growing data set.
+
+We can increase the number of SQS queue, the number of lambda functions and the number of psql container. I assume we can have some may to merge different psql container into one
+
+
+### How can PII be recovered later on?
+
+see the decrypt example, we can run that function to each encrypt value 
