@@ -22,3 +22,9 @@ stop:
 	docker-compose down --remove-orphans
 clean:
 	docker system prune -f
+create_key:
+	python -m encoding
+etl:
+	python -m etl
+health_check:
+	python -m health
